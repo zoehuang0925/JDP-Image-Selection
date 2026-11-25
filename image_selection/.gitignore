@@ -1,0 +1,6 @@
+# 避免 Feature Cache / Coverage Cache 與可能大量產出的圖表、圖片被誤推到 GitHub。
+.cache/
+.results/
+__pycache__/
+.pytest_cache/
+*.py[cod]

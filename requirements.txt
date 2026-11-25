@@ -1,0 +1,10 @@
+# 通用選樣套件。公司應沿用原三篩已驗證的 PyTorch/CUDA 環境。
+# 公開 DINOv2 所需 transformers 請另外安裝 requirements-public.txt，避免影響公司三篩既有版本。
+PyYAML>=6.0
+numpy>=1.24
+Pillow>=9.0
+matplotlib>=3.6
+scikit-learn>=1.2
+# PyTorch：沿用原 SubspaceAD requirements 與公司現有環境。
+# 可選 UMAP：pip install umap-learn
+# 開發測試：pip install pytest

@@ -1,0 +1,21 @@
+# 模型、輸出、資料及機密設定不要上傳 GitHub
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+.env.*
+.ipynb_checkpoints/
+image_selection/.cache/
+image_selection/.results/
+models/
+weights/
+checkpoints/
+datasets/
+*.pth
+*.pt
+*.pkl
+*.safetensors
+*.npz
+*.npy
+.DS_Store

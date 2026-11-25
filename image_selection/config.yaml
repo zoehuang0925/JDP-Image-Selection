@@ -1,0 +1,78 @@
+# JDP 正常影像選樣系統：預設優先供公司 AnomalyVFM 環境使用。
+# 執行：在自己的 JDP-Image-Selection 根目錄執行 python -m image_selection --config image_selection/config.yaml
+# 本地端測試只要修改 feature_extractor.backend 為 public_dinov2；詳見 README。
+
+selection:
+  mode: stage1_stage2       # stage1 / stage2 / stage1_stage2；後者 Stage 1 自動預選 2*K
+  k: 5                     # 最多新增的「正式」圖片數；不包含原始 train/good
+  seed: 42                 # 隨機選樣與 UMAP 的亂數種子，保持實驗可重現
+
+dataset:
+  root: ./datasets/mvtec-ad # 資料集根目錄；底下是每個產品的子資料夾
+  parts: all               # all 表示自動處理所有產品；指定產品例：['bottle']
+  train_rel: train/good     # 每個產品中已確認正常的原始 Training Set（不會修改）
+  candidate_rel: candidates/good # 每個產品的候選正常影像；與 train 資料夾並列
+  recursive: true          # 是否搜尋上述子目錄下的子資料夾
+  # 候選資料的來源不等於 Ground Truth；公司需確認候選資料足夠可信才合併訓練。
+
+feature_extractor:
+  backend: company_anomalyvfm  # 公司：company_anomalyvfm；本地公開：public_dinov2
+  image_res: 672              # 必須是 patch_size=14 的倍數；公司 A1 固定 672
+  batch_size: 1               # DINO 每個 GPU batch 的圖片數；顯存不足請設 1
+  use_clahe: false            # 是否做 CLAHE；必須與正式三篩使用的設定相同
+  cache_dir: ./image_selection/.cache/features # DINO Feature Cache 位置；改變權重/前處理自動隔離
+  company:
+    variant: a1_adapted_final # 三篩 H1：AnomalyVFM DoRA-adapted final Patch Tokens
+    subspacead_repo_path: ../SubspaceAD # 唯讀依賴：朋友 SubspaceAD Repo 的本地路徑（與本 Repo 同層時適用；公司請改為實際絕對路徑）
+    anomalyvfm_root: /workspace/Venessa/AnomalyVFM_ # 公司 AnomalyVFM 根目錄
+    anomalyvfm_ckpt: /workspace/Venessa/AnomalyVFM_/pretrained_models/anomalyvfm_dinov2.pkl # AnomalyVFM 適應化權重
+    dino_repo_path: /workspace/Venessa/dinov2  # Meta DINOv2 官方原始碼位置
+    dino_weight_path: /workspace/model_weight/dinov2_vitl14_reg4_pretrain.pth # 原始 DINOv2 ViT-L/14-Reg 權重
+  public:
+    model_id: facebook/dinov2-with-registers-large # 本地公開 DINOv2 ViT-L/14-Reg
+    auto_download: true      # true：第一次執行自動下載公開權重，後續由 Hugging Face 快取
+    local_model_dir: null   # null：直接使用 Hugging Face 模型 ID；已手動下載則指定本機資料夾
+    hf_cache_dir: null      # null：使用 HF 預設快取目錄；可指定本地磁碟路徑
+
+stage1:
+  epsilon: 0.0              # 最佳新增 Coverage Gain <= epsilon 就停止（須依產品校準）
+  query_chunk: 256          # 每次計算多少個候選池 Patch；降低 GPU 記憶體需求
+  reference_chunk: 512      # 每次比較多少個來源 Patch；降低 GPU 記憶體需求
+  similarity_device: auto   # auto / cpu / cuda；使用向量矩陣乘法計算所有 Patch Pair
+  coverage_cache_dir: ./image_selection/.cache/coverage # Stage 1 完整 Coverage 矩陣快取（可能很大）
+  max_coverage_cache_gb: 40 # 預估磁碟需求大於此值則提前中止，避免填滿磁碟
+
+stage2:
+  strategy: p90             # random / mean / p90 / high_error_ratio（四種可自由切換）
+  high_error_threshold_mode: train_quantile # train_quantile / fixed；Ratio 策略專用
+  high_error_quantile: 0.95 # train_quantile 下，使用原始訓練 Patch Errors 的此分位數作 τ
+  high_error_threshold: null # fixed 模式請設定數值，例如 2.0；否則維持 null
+  # train_quantile 是 in-sample 探索性預設；如有獨立正常校準集，未來可擴充校準來源。
+
+pca:
+  pca_ev: 0.99             # SubspaceAD PCA 累積解釋變異比例；固定維度時設 null
+  pca_dim: null            # 指定固定主成分維度（整數）；與 pca_ev 二擇一
+  whiten: false           # 與現有三篩設定一致；Reconstruction Error 計算不額外 whitening
+  drop_k: 0               # 重建時忽略前幾個主成分；一般選樣預設 0
+
+visualization:
+  feature_plot: pca        # none / pca / umap / both；不用重跑 DINO
+  save_heatmap: true       # Stage2/整合模式，輸出所選圖片的原始 Patch Error Heatmap
+  max_heatmaps: 10         # 最多輸出幾張熱圖，避免大量 PNG
+  save_ranking: true       # 輸出 Stage 1 或 Stage 2 的分數排名圖
+  save_iteration: true     # Stage 1 各輪 Coverage Gain 折線圖；Batch Stage2 沒有逐次模型更新
+  plot_max_images: 500     # 2D 分布圖至多顯示多少張候選影像，固定 seed 抽樣
+
+output:
+  root: ./image_selection/.results # 每次執行建立獨立時間戳資料夾
+  copy_selected: true      # 輸出 Selected_Only/ 影像副本
+  copy_merged: true        # 輸出 Merged_Training_Set/（原始+選出，不修改原始資料）
+  save_csv: true           # 輸出 candidate_scores.csv、stage1_ranking.csv 等實驗紀錄
+
+evaluation:
+  enabled: false           # 選樣完成後是否以獨立資料評估 Initial/Final PCA；正式選樣不需要測試集
+  test_rel: test           # 每個產品的 test/good 與 test/<defect>；不可用於選樣
+  val_rel: val            # 每個產品的 val/good；可用於估計正常分數閾值
+  threshold: null         # 提供固定影像異常分數門檻；null 時可由 val/good 估計
+  target_fpr: 0.05        # 估計門檻時 val/good 的上分位數比例（正常 FPR 目標）
+  top_patch_fraction: 0.005 # 影像異常分數 = 最大此比例 Patch Reconstruction Errors 的平均
